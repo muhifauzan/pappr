@@ -1,5 +1,3 @@
-import "../styles/Editor.css";
-
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -7,40 +5,50 @@ import EditorMenuBar from "./EditorMenuBar";
 import { useCallback, useEffect } from "react";
 
 interface EditorProps {
-  onWordCountChange: (wordCount: number) => void;
+  onContentChange: (content: string) => void;
 }
 
-const Editor = ({ onWordCountChange }: EditorProps) => {
-  const updateWordCount = useCallback(
+const Editor = ({ onContentChange }: EditorProps) => {
+  const setContent = useCallback(
     (text: string) => {
-      const wordCount = text
-        .trim()
-        .split(/\s+/)
-        .filter((word) => word.length > 0).length;
-
-      onWordCountChange(wordCount);
+      onContentChange(text);
     },
-    [onWordCountChange],
+    [onContentChange],
   );
 
   const editor = useEditor({
-    extensions: [StarterKit, Underline],
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3],
+        },
+      }),
+      Underline,
+    ],
+    editorProps: {
+      attributes: {
+        class: "prose prose-lg focus:outline-none max-w-none",
+      },
+    },
     content: "<p>Write your essay here...</p>",
     onUpdate: ({ editor }) => {
-      updateWordCount(editor.getText());
+      setContent(editor.getText());
     },
   });
 
   useEffect(() => {
     if (editor) {
-      updateWordCount(editor.getText());
+      setContent(editor.getText());
     }
-  }, [editor, updateWordCount]);
+  }, [editor, setContent]);
 
   return (
-    <div className="editor-wrapper">
+    <div className="w-full h-full">
       <EditorMenuBar editor={editor} />
-      <EditorContent editor={editor} />;
+      <EditorContent
+        editor={editor}
+        className="prose max-w-none min-h-[500px] p-4 border rounded-lg bg-white"
+      />
     </div>
   );
 };

@@ -1,36 +1,37 @@
-import "../styles/EditorMenuBar.css";
-
 interface EditorMenuBarProps {
   editor: any | null;
 }
 const EditorMenuBar = ({ editor }: EditorMenuBarProps) => {
-  if (!editor) {
-    return null;
-  }
+  if (!editor) return null;
+
+  const ButtonClass = "px-3 py-1 rounded hover:bg-gray-100";
+  const ActiveButtonClass = "px-3 py-1 rounded bg-gray-200";
 
   return (
-    <div className="menu-bar">
+    <div className="flex gap-2 p-2 mb-2 border rounded-lg bg-gray-50">
       <button
         onClick={() => editor.chain().focus().toggleBold().run()}
-        className={editor.isActive("bold") ? "is-active" : ""}
+        className={editor.isActive("bold") ? ActiveButtonClass : ButtonClass}
       >
         bold
       </button>
       <button
         onClick={() => editor.chain().focus().toggleItalic().run()}
-        className={editor.isActive("italic") ? "is-active" : ""}
+        className={editor.isActive("italic") ? ActiveButtonClass : ButtonClass}
       >
         italic
       </button>
       <button
         onClick={() => editor.chain().focus().toggleUnderline().run()}
-        className={editor.isActive("underline") ? "is-active" : ""}
+        className={
+          editor.isActive("underline") ? ActiveButtonClass : ButtonClass
+        }
       >
         underline
       </button>
       <button
         onClick={() => editor.chain().focus().toggleStrike().run()}
-        className={editor.isActive("strike") ? "is-active" : ""}
+        className={editor.isActive("strike") ? ActiveButtonClass : ButtonClass}
       >
         strike
       </button>
