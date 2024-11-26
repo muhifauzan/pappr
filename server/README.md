@@ -1,5 +1,18 @@
 # Server
 
+## Up and Running
+
+```sh
+$ mix phx.server
+```
+
+or
+
+```sh
+$ iex -S mix phx.server
+```
+
+
 To start your Phoenix server:
 
   * Run `mix setup` to install and setup dependencies

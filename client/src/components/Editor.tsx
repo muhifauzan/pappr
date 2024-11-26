@@ -1,4 +1,3 @@
-import { Socket } from "phoenix";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Step } from "@tiptap/pm/transform";
 import { collab, receiveTransaction, sendableSteps } from "@tiptap/pm/collab";
@@ -7,6 +6,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 
+import { usePhoenixChannel } from "../utilities/usePhoenixChannel";
 import EditorMenuBar from "./EditorMenuBar";
 
 interface EditorProps {
@@ -28,8 +28,8 @@ const EditorView = ({ onContentChange }: EditorProps) => {
   const [version, setVersion] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const clientID = useRef<number>(Math.floor(Math.random() * 0xffffffff));
-  const socket = useRef<Socket | null>(null);
   const channel = useRef<any>(null);
+  const [phoenixChannel] = usePhoenixChannel("editor:main");
 
   const editor = useEditor({
     extensions: [StarterKit.configure({ history: false }), Underline],
@@ -55,70 +55,47 @@ const EditorView = ({ onContentChange }: EditorProps) => {
   });
 
   useEffect(() => {
-    socket.current = new Socket("ws://localhost:4000/socket", {
-      logger: (kind, msg, data) => console.log(`Socket ${kind}: ${msg}`, data),
-    });
-
-    socket.current.connect();
-
-    socket.current.onOpen(() => {
-      console.log("Socket connected");
-    });
-
-    socket.current.onClose(() => {
-      console.log("Socket closed");
+    if (phoenixChannel) {
+      channel.current = phoenixChannel;
+      setConnectionStatus("connected");
+    } else {
       setConnectionStatus("disconnected");
-    });
+    }
+  }, [phoenixChannel]);
 
-    socket.current.onError(() => {
-      console.log("Socket error");
-      setConnectionStatus("error");
-    });
+  useEffect(() => {
+    if (!channel.current || !editor) return;
 
-    channel.current = socket.current.channel("editor:main", {
+    const handleNewSteps = ({
       version,
-      client_id: clientID.current,
-    });
+      steps,
+      client_ids: clientIDs,
+    }: EditorSocketPayload) => {
+      console.log("Got new_steps", version, steps, clientIDs);
 
-    channel.current
-      .join()
-      .receive("ok", () => {
-        console.log("Channel joined");
-        setConnectionStatus("connected");
-      })
-      .receive("error", (error: SocketErrorPayload) => {
-        console.log("Channel join failed", error);
-        setConnectionStatus("error");
-      });
+      const transaction = receiveTransaction(
+        editor.state,
+        steps.map((step) => Step.fromJSON(editor.schema, step)),
+        clientIDs,
+      );
 
-    channel.current.on(
-      "new_steps",
-      ({ version, steps, client_ids: clientIDs }: EditorSocketPayload) => {
-        console.log("Got new_steps", version, steps, clientIDs);
-        if (editor) {
-          const transaction = receiveTransaction(
-            editor.state,
-            steps.map((step) => Step.fromJSON(editor.schema, step)),
-            clientIDs,
-          );
-          setVersion(version);
+      setVersion(version);
+      editor.view.dispatch(transaction);
+    };
 
-          editor.view.dispatch(transaction);
-        }
-      },
-    );
-
-    channel.current.on("error", (error: SocketErrorPayload) => {
+    const handleError = (error: SocketErrorPayload) => {
       console.log("Got Channel error", error);
       if (error.reason === "version_mismatch") {
-        channel.current.push("get_steps", { version: version });
+        channel.current.push("get_steps", { version });
       }
-    });
+    };
+
+    channel.current.on("new_steps", handleNewSteps);
+    channel.current.on("error", handleError);
 
     return () => {
-      channel.current.leave();
-      socket.current?.disconnect();
-      setConnectionStatus("disconnected");
+      channel.current?.off("new_steps", handleNewSteps);
+      channel.current?.off("error", handleError);
     };
   }, [editor, version]);
 
