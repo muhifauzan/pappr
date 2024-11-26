@@ -1,50 +1,153 @@
+import { Socket } from "phoenix";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Step } from "@tiptap/pm/transform";
+import { collab, receiveTransaction, sendableSteps } from "@tiptap/pm/collab";
+import { EditorState } from "@tiptap/pm/state";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
+
 import EditorMenuBar from "./EditorMenuBar";
-import { useCallback, useEffect } from "react";
 
 interface EditorProps {
   onContentChange: (content: string) => void;
 }
 
-const Editor = ({ onContentChange }: EditorProps) => {
-  const setContent = useCallback(
-    (text: string) => {
-      onContentChange(text);
-    },
-    [onContentChange],
-  );
+interface EditorSocketPayload {
+  version: number;
+  steps: any[];
+  client_id: number;
+  client_ids: number[];
+}
+
+interface SocketErrorPayload {
+  reason: string;
+}
+
+const EditorView = ({ onContentChange }: EditorProps) => {
+  const [version, setVersion] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState("disconnected");
+  const clientID = useRef<number>(Math.floor(Math.random() * 0xffffffff));
+  const socket = useRef<Socket | null>(null);
+  const channel = useRef<any>(null);
 
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3],
-        },
-      }),
-      Underline,
-    ],
+    extensions: [StarterKit.configure({ history: false }), Underline],
+    onCreate: ({ editor }) => {
+      const newState = editor.state.reconfigure({
+        plugins: [...editor.state.plugins, collab({ version })],
+      });
+
+      editor.view.updateState(newState);
+    },
+    onUpdate: ({ editor, transaction }) => {
+      if (transaction.docChanged) {
+        onContentChange(editor.getText());
+        submitSteps(editor.state);
+      }
+    },
+    content: "<p>Write your essay here...</p>",
     editorProps: {
       attributes: {
         class: "prose prose-lg focus:outline-none max-w-none",
       },
     },
-    content: "<p>Write your essay here...</p>",
-    onUpdate: ({ editor }) => {
-      setContent(editor.getText());
-    },
   });
 
   useEffect(() => {
-    if (editor) {
-      setContent(editor.getText());
+    socket.current = new Socket("ws://localhost:4000/socket", {
+      logger: (kind, msg, data) => console.log(`Socket ${kind}: ${msg}`, data),
+    });
+
+    socket.current.connect();
+
+    socket.current.onOpen(() => {
+      console.log("Socket connected");
+    });
+
+    socket.current.onClose(() => {
+      console.log("Socket closed");
+      setConnectionStatus("disconnected");
+    });
+
+    socket.current.onError(() => {
+      console.log("Socket error");
+      setConnectionStatus("error");
+    });
+
+    channel.current = socket.current.channel("editor:main", {
+      version,
+      client_id: clientID.current,
+    });
+
+    channel.current
+      .join()
+      .receive("ok", () => {
+        console.log("Channel joined");
+        setConnectionStatus("connected");
+      })
+      .receive("error", (error: SocketErrorPayload) => {
+        console.log("Channel join failed", error);
+        setConnectionStatus("error");
+      });
+
+    channel.current.on(
+      "new_steps",
+      ({ version, steps, client_ids: clientIDs }: EditorSocketPayload) => {
+        console.log("Got new_steps", version, steps, clientIDs);
+        if (editor) {
+          const transaction = receiveTransaction(
+            editor.state,
+            steps.map((step) => Step.fromJSON(editor.schema, step)),
+            clientIDs,
+          );
+          setVersion(version);
+
+          editor.view.dispatch(transaction);
+        }
+      },
+    );
+
+    channel.current.on("error", (error: SocketErrorPayload) => {
+      console.log("Got Channel error", error);
+      if (error.reason === "version_mismatch") {
+        channel.current.push("get_steps", { version: version });
+      }
+    });
+
+    return () => {
+      channel.current.leave();
+      socket.current?.disconnect();
+      setConnectionStatus("disconnected");
+    };
+  }, [editor, version]);
+
+  const submitSteps = useCallback((state: EditorState) => {
+    const sendable = sendableSteps(state);
+
+    if (sendable && sendable.steps.length > 0) {
+      channel.current.push("submit_steps", {
+        version: sendable.version,
+        steps: sendable.steps.map((step) => step.toJSON()),
+        client_id: clientID.current,
+      });
     }
-  }, [editor, setContent]);
+  }, []);
 
   return (
     <div className="w-full h-full">
-      <EditorMenuBar editor={editor} />
+      <div className="flex justify-between items-center mb-4">
+        <EditorMenuBar editor={editor} />
+        <div
+          className={`px-3 py-1 rounded-full ${
+            connectionStatus === "connected"
+              ? "bg-green-100 text-green-800"
+              : "bg-red-100 text-red-800"
+          }`}
+        >
+          {connectionStatus}
+        </div>
+      </div>
       <EditorContent
         editor={editor}
         className="prose max-w-none min-h-[500px] p-4 border rounded-lg bg-white"
@@ -53,4 +156,4 @@ const Editor = ({ onContentChange }: EditorProps) => {
   );
 };
 
-export default Editor;
+export default EditorView;

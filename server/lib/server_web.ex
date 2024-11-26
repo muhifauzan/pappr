@@ -41,8 +41,9 @@ defmodule ServerWeb do
         formats: [:html, :json],
         layouts: [html: ServerWeb.Layouts]
 
+      use Gettext, backend: ServerWeb.Gettext
+
       import Plug.Conn
-      import ServerWeb.Gettext
 
       unquote(verified_routes())
     end
